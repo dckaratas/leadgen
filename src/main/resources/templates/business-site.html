@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <title th:text="${businessName}">İşletme Adı</title>
+</head>
+<body>
+<header>
+    <h1 th:text="${businessName}">İşletme Adı</h1>
+    <p th:text="${tagline}">Slogan</p>
+</header>
+
+<section>
+    <h2>Hakkımızda</h2>
+    <p th:text="${aboutText}">Tanıtım metni</p>
+</section>
+
+<section>
+    <h2>Hizmetlerimiz</h2>
+    <ul>
+        <li th:each="service : ${services}" th:text="${service}">Hizmet</li>
+    </ul>
+</section>
+
+<footer>
+    <p th:text="${callToActionText}">İletişime geçin</p>
+</footer>
+</body>
+</html>
