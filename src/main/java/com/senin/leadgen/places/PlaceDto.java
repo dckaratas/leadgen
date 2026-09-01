@@ -11,9 +11,14 @@ public record PlaceDto(
         double latitude,
         double longitude,
         String websiteUri,   // null/boş ise -> web sitesi yok demektir
-        String editorialSummary // Google'daki açıklama metni, site üretiminde kullanılacak
+        String editorialSummary, // Google'daki açıklama metni, site üretiminde kullanılacak
+        String internationalPhoneNumber
 ) {
     public boolean hasWebsite() {
         return websiteUri != null && !websiteUri.isBlank();
+    }
+
+    public boolean hasPhoneNumber() {
+        return internationalPhoneNumber != null && !internationalPhoneNumber.isBlank();
     }
 }

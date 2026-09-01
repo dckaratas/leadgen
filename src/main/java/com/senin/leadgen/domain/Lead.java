@@ -1,9 +1,7 @@
 package com.senin.leadgen.domain;
 
-import jakarta.persistence.Entity;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.Id;
-import jakarta.persistence.Table;
+import jakarta.persistence.*;
+import lombok.Getter;
 
 import java.time.Instant;
 
@@ -13,7 +11,8 @@ import java.time.Instant;
  * EMAIL_SENT, FAILED vb. - state machine gibi düşünebilirsin).
  */
 @Entity
-@Table(name = "leads")
+@Getter
+@Table(name = "leads", uniqueConstraints = @UniqueConstraint(columnNames = "placeId"))
 public class Lead {
 
     @Id
@@ -22,7 +21,9 @@ public class Lead {
 
     private String placeId;
     private String displayName;
-    private String status;
+
+    @Enumerated(EnumType.STRING)
+    private LeadStatus status;
     private Instant createdAt;
     private Instant updatedAt;
 
@@ -30,7 +31,7 @@ public class Lead {
         // JPA için
     }
 
-    public Lead(String placeId, String displayName, String status) {
+    public Lead(String placeId, String displayName, LeadStatus status) {
         this.placeId = placeId;
         this.displayName = displayName;
         this.status = status;
@@ -38,5 +39,9 @@ public class Lead {
         this.updatedAt = Instant.now();
     }
 
-    // TODO: getter/setter (Lombok @Getter/@Setter kullanmak istersen ekle)
+    public void updateStatus(LeadStatus newStatus) {
+        this.status = newStatus;
+        this.updatedAt = Instant.now();
+    }
+
 }

@@ -1,8 +1,8 @@
 package com.senin.leadgen.agent.outreach;
 
 public record OutreachResult(
-        boolean sent,
-        String recipientEmail,
+        boolean linkGenerated,   // eski "sent" -> artık "link üretilebildi mi"
+        String contactLink,
         String failureReason // sent=false ise doldurulur
 ) {
 }

@@ -1,33 +1,28 @@
 package com.senin.leadgen.orchestrator;
 
+import com.senin.leadgen.agent.AgentResult;
+import com.senin.leadgen.agent.contactdiscovery.ContactChannel;
+import com.senin.leadgen.agent.contactdiscovery.ContactDiscoveryAgent;
+import com.senin.leadgen.agent.contactdiscovery.ContactInfo;
 import com.senin.leadgen.agent.contentgen.ContentGenAgent;
 import com.senin.leadgen.agent.contentgen.GeneratedSite;
 import com.senin.leadgen.agent.outreach.OutreachAgent;
+import com.senin.leadgen.agent.outreach.OutreachInput;
 import com.senin.leadgen.agent.outreach.OutreachResult;
 import com.senin.leadgen.agent.websitecheck.WebsiteCheckAgent;
 import com.senin.leadgen.agent.websitecheck.WebsiteCheckResult;
+import com.senin.leadgen.domain.Lead;
+import com.senin.leadgen.domain.LeadStatus;
 import com.senin.leadgen.places.PlaceDto;
 import com.senin.leadgen.places.PlacesClient;
+import com.senin.leadgen.services.LeadService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
 
-/**
- * Tüm pipeline'ı uçtan uca yöneten sınıf:
- * PlacesClient -> WebsiteCheckAgent -> ContentGenAgent -> OutreachAgent
- * <p>
- * Bilinçli olarak agent'lar arası iletişim doğrudan Java metod çağrısı
- * ile yapılıyor (henüz kuyruk/HTTP yok) - bkz. önceki konuşmadaki
- * "Seviye 1: aynı proje içinde ayrı paketler" kararı.
- * <p>
- * TODO (core logic):
- *  - yarıçap büyütme döngüsü (yeterli sonuç yoksa radiusMeters'i artır)
- *  - bir adım başarısız olduğunda zinciri durdurma/atlama stratejisi
- *    (AgentResult kullanılabilir)
- *  - her işletme için ayrı ayrı mı yoksa toplu mu (batch) işleneceği
- */
 @Component
 public class LeadPipelineOrchestrator {
 
@@ -37,34 +32,67 @@ public class LeadPipelineOrchestrator {
     private final WebsiteCheckAgent websiteCheckAgent;
     private final ContentGenAgent contentGenAgent;
     private final OutreachAgent outreachAgent;
+    private final LeadService leadService;
+    private final ContactDiscoveryAgent contactDiscoveryAgent;
 
     public LeadPipelineOrchestrator(
             PlacesClient placesClient,
             WebsiteCheckAgent websiteCheckAgent,
             ContentGenAgent contentGenAgent,
-            OutreachAgent outreachAgent
+            OutreachAgent outreachAgent,
+            LeadService leadService,
+            ContactDiscoveryAgent contactDiscoveryAgent
     ) {
         this.placesClient = placesClient;
         this.websiteCheckAgent = websiteCheckAgent;
         this.contentGenAgent = contentGenAgent;
         this.outreachAgent = outreachAgent;
+        this.leadService = leadService;
+        this.contactDiscoveryAgent = contactDiscoveryAgent;
     }
 
+    @Async
     public void runFor(double latitude, double longitude, int initialRadiusMeters) {
-        List<PlaceDto> places = placesClient.searchNearby(latitude, longitude, initialRadiusMeters);
-        log.info("{} işletme bulundu (radius={}m)", places.size(), initialRadiusMeters);
+        AgentResult<List<PlaceDto>> placesResult = placesClient.searchNearby(latitude, longitude, initialRadiusMeters);
+        if (!placesResult.success()) {
+            log.error("İşlem durduruldu: {}", placesResult.errorMessage());
+            return;
+        }
+        List<PlaceDto> places = placesResult.value();
 
         for (PlaceDto place : places) {
+            Lead lead = leadService.createLead(place.placeId(), place.displayName(), LeadStatus.FOUND);
+
+            if (lead.getStatus() == LeadStatus.CONTACT_LINK_READY || lead.getStatus() == LeadStatus.SKIPPED_HAS_WEBSITE) {
+                continue;
+            }
+
             WebsiteCheckResult checkResult = websiteCheckAgent.execute(place);
             if (!checkResult.needsWebsite()) {
+                leadService.markStatus(lead, LeadStatus.SKIPPED_HAS_WEBSITE);
                 log.debug("Atlandı (zaten sitesi var): {}", place.displayName());
                 continue;
             }
 
-            GeneratedSite site = contentGenAgent.execute(checkResult);
-            OutreachResult outreachResult = outreachAgent.execute(site);
+            ContactInfo contactInfo = contactDiscoveryAgent.execute(place);
+            if (contactInfo.channel() == ContactChannel.NONE) {
+                leadService.markStatus(lead, LeadStatus.CONTACT_DISCOVERY_FAILED);
+                log.debug("Atlandı (iletişim kanalı yok): {}", place.displayName());
+                continue;
+            }
 
-            log.info("İşlendi: {} -> gönderildi={}", place.displayName(), outreachResult.sent());
+            AgentResult<GeneratedSite> siteResult = contentGenAgent.execute(checkResult);
+            if (!siteResult.success()) {
+                leadService.markStatus(lead, LeadStatus.SITE_GENERATION_FAILED);
+                log.warn("Site üretimi başarısız: {} - {}", place.displayName(), siteResult.errorMessage());
+                continue;
+            }
+            leadService.markStatus(lead, LeadStatus.SITE_GENERATED);
+
+            OutreachResult outreachResult = outreachAgent.execute(new OutreachInput(contactInfo, siteResult.value()));
+            leadService.markStatus(lead, outreachResult.linkGenerated() ? LeadStatus.CONTACT_LINK_READY : LeadStatus.CONTACT_DISCOVERY_FAILED);
+
+            log.info("İşlendi: {} -> link üretildi={}", place.displayName(), outreachResult.linkGenerated());
         }
     }
 }

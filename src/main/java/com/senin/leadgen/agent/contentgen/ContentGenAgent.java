@@ -44,7 +44,7 @@ import java.util.List;
  *       döndürürse) try/catch ve fallback stratejisi
  */
 @Component
-public class ContentGenAgent implements Agent<WebsiteCheckResult, GeneratedSite> {
+public class ContentGenAgent implements Agent<WebsiteCheckResult, AgentResult<GeneratedSite>> {
 
     private final ChatClient chatClient;
     private final TemplateEngine templateEngine;
@@ -87,7 +87,7 @@ public class ContentGenAgent implements Agent<WebsiteCheckResult, GeneratedSite>
 
         String html = renderHtml(content);
 
-        return new GeneratedSite(place, html, null);
+        return AgentResult.ok(new GeneratedSite(place, html, null));
     }
 
     private String renderHtml(GeneratedSiteContent content) {
